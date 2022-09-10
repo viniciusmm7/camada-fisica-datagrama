@@ -32,9 +32,11 @@ class Server:
         self.com1 = enlace(self.serialName)
         self.com1.enable()
         
-        self.packageId = 0
-        # self.lastPackageId = 0
+        self.packetId = 0
+        # self.lastpacketId = 0
 
+    # ----- Método para a primeira porta com arduíno
+    #       se tiver mais de uma (sozinho, por exemplo)
     def _findArduino(self) -> list:
         result = []
         ports = list(serial.tools.list_ports.comports())
@@ -44,6 +46,7 @@ class Server:
             c += 1
         return result[0]
 
+    # ===== MÉTODOS PARA EVITAR REPETIÇÃO DE CÓDIGO =====
     def waitBufferLen(self):
         rxLen = self.com1.rx.getBufferLen()
         while rxLen == 0:
@@ -54,7 +57,12 @@ class Server:
         txSize = self.com1.tx.getStatus()
         while txSize == 0:
             txSize = self.com1.tx.getStatus()
+        return txSize
+    # ====================================================
 
+    # ========= MÉTODOS PARA ADMINISTRAR PACOTES =========
+
+    # ----- Quebrar os dados em payloads de até 114 bytes
     def make_payload_list(self, data) -> list:
         limit = 114
         payload_list = []
@@ -70,25 +78,31 @@ class Server:
 
         return payload_list, len(payload_list)
 
-    def make_head(self, type='\\x00', h1='\\x00', h2='\\x00', len_packages='\\x00', package_id='\\x00', h5='\\x00', h6='\\x00', last_package='\\x00', h8='\\x00', h9='\\x00'):
-        return (type + h1 + h2 + len_packages + package_id + h5 + h6 + last_package + h8 + h9).encode()
+    # ----- Cria o head do pacote
+    def make_head(self, type='\\x00', h1='\\x00', h2='\\x00', len_packets='\\x00', packet_id='\\x00', h5='\\x00', h6='\\x00', last_packet='\\x00', h8='\\x00', h9='\\x00'):
+        return (type + h1 + h2 + len_packets + packet_id + h5 + h6 + last_packet + h8 + h9).encode()
 
+    # ----- Lê o payload (só para reduzir a complexidade do entendimento do main)
     def read_payload(self, n): # n = head[5]
         rxBuffer, nRx = self.com1.getData(n)
         return rxBuffer, nRx
 
-    def make_package(self, type='\\x00', payload:bytes=b'', len_packages='\\x00', h5='\\x00'):
+    # ----- Cria o pacote de fato
+    def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
         
-        head = self.make_head(type=type, len_packages=len_packages, package_id=self.packageId, h5=h5)
+        head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId, h5=h5)
 
         return (head.decode() + payload.decode() + self.EOF).encode()
 
-
+    # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
-        self.com1.sendData(np.asarray(self.make_package(type=self.HANDSHAKE)))
+        self.com1.sendData(np.asarray(self.make_packet(type=self.HANDSHAKE)))
 
+    # ----- Envia o acknowledge (reduzir a complexidade do main)
     def send_ack(self):
-        self.com1.sendData(np.asarray(self.make_package(type=self.ACK)))
+        self.com1.sendData(np.asarray(self.make_packet(type=self.ACK)))
+
+    # ====================================================
 
     def main(self):
         try:

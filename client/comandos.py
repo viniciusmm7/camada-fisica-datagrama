@@ -44,14 +44,16 @@ import time
 
 
 def calcula_tempo(tempo):
+    t = []
 
-    t= []  
     hora = int(tempo.split()[3][:2]) * 3600
     minuto = int(tempo.split()[3][3:5]) * 60
-    segundo= int(tempo.split()[3][6:]) 
+    segundo = int(tempo.split()[3][6:])
+
     t.append(hora)
     t.append(minuto)
     t.append(segundo)
+    
     return t
    
 

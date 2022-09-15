@@ -105,9 +105,8 @@ class Client:
     
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
-    def verify_handshake(self, teste) -> bool:
-        if  teste == self.HANDSHAKE:
-            print('wow')
+    def verify_handshake(self, rxBuffer:bytes) -> bool:
+        if  '\\' + rxBuffer.decode().split('\\')[1] == self.HANDSHAKE:
             return True
         return False
 
@@ -117,8 +116,8 @@ class Client:
 
     # ----- Verifica se o pacote recebido é um acknowledge
     # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
-    def verify_ack(self, rxBuffer) -> bool:
-        if rxBuffer[0] == self.ACK:
+    def verify_ack(self, rxBuffer:bytes) -> bool:
+        if '\\' + rxBuffer.decode().split('\\')[1] == self.ACK:
             return True
         return False
 
@@ -127,7 +126,7 @@ class Client:
     def main(self):
         try:
             print('Iniciou o main')
-            data = '' # Qualquer coisa que deva ser mandado
+            data = (4294967296).to_bytes(32, 'big') # Qualquer coisa que deva ser mandado
 
             print('Abriu a comunicação')
 

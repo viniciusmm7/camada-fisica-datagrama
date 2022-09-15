@@ -102,9 +102,8 @@ class Server:
 
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
-    def verify_handshake(self, h0) -> bool:
-        if  h0 == self.HANDSHAKE:
-            print('wow')
+    def verify_handshake(self, rxBuffer:bytes) -> bool:
+        if  '\\' + rxBuffer.decode().split('\\')[1] == self.HANDSHAKE:
             return True
         return False
 
@@ -114,8 +113,8 @@ class Server:
 
     # ----- Verifica se o pacote recebido é um acknowledge
     # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
-    def verify_ack(self, h0) -> bool:
-        if h0 == self.ACK:
+    def verify_ack(self, rxBuffer:bytes) -> bool:
+        if '\\' + rxBuffer.decode().split('\\')[1] == self.ACK:
             return True
         return False
 

@@ -5,6 +5,7 @@
 #Aplicação
 ####################################################
 from faulthandler import cancel_dump_traceback_later
+from http import client
 from enlace import *
 import time, platform, serial.tools.list_ports
 import numpy as np
@@ -21,6 +22,8 @@ class Client:
         self.serialName = self._findArduino()
         self.com1 = enlace(self.serialName)
         self.com1.enable()
+
+        self.status = 0
         
         self.t0 = 0
         self.t1 = 0
@@ -42,10 +45,24 @@ class Client:
     def waitBufferLen(self):
         rxLen = self.com1.rx.getBufferLen()
         while rxLen == 0:
+            if self.status==1:
+                break
             rxLen = self.com1.rx.getBufferLen()
             self.t1 = calcula_tempo(time.ctime())
-            if calcula_tempo(self.t0, self.t1) > 5:
-                raise Exception('Time out. Servidor não respondeu.')
+            if variacao_tempo(self.t0, self.t1) > 5 and self.status == 0:
+                res = input("Tentar reconexção?(s/n) ")
+
+                if res.lower() == "s":
+                    self.t0 = calcula_tempo(time.ctime())
+                    self.send_handshake()
+                else:
+                    raise Exception('Time out. Servidor não respondeu.')
+
+
+            if rxLen != 0:
+                break
+                
+
         return rxLen
 
     def waitStatus(self):
@@ -61,16 +78,14 @@ class Client:
     def make_payload_list(self, data):
         limit = 114
         payload_list = []
+        cont = 0 
 
-        if data.isinstance(str):
-            data = data.encode()
 
-        if data.isinstance(bytes):
-            if limit > len(data):
-                limit = len(data)
-            payload_list.append(data[:limit])
-            data = data[limit:]
-
+        if limit > len(data):
+            limit = len(data)
+        payload_list.append(data[:limit])
+        data = data[limit:]
+        print(len(payload_list))
         return payload_list, len(payload_list)
 
     # ----- Cria o head do pacote
@@ -84,26 +99,32 @@ class Client:
 
     # ----- Cria o pacote de fato
     def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
+
         if self.packetId < 16 and self.lastpacketId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+format(self.packetId, 'x'), h5=h5, last_packet='\\x0'+format(self.lastpacketId, 'x'))
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
         elif self.packetId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+format(self.packetId, 'x'), h5=h5, last_packet='\\x'+format(self.lastpacketId, 'x'))
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
         elif self.lastpacketId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+format(self.packetId, 'x'), h5=h5, last_packet='\\x0'+format(self.lastpacketId, 'x'))
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId )[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
         else:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+format(self.packetId, 'x'), h5=h5, last_packet='\\x'+format(self.lastpacketId, 'x'))
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
 
         return (head.decode() + payload.decode() + self.EOF).encode()
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
+        
         self.com1.sendData(np.asarray(self.make_packet(type=self.HANDSHAKE)))
+        
     
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
     def verify_handshake(self, rxBuffer:bytes) -> bool:
-        if rxBuffer[0] == self.HANDSHAKE:
+        self.status = 1
+        if  '\\' + rxBuffer.decode().split('\\')[1] == self.HANDSHAKE:
+
             return True
+
         return False
 
     # ----- Envia o acknowledge (reduzir a complexidade do main)
@@ -112,9 +133,12 @@ class Client:
 
     # ----- Verifica se o pacote recebido é um acknowledge
     # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
-    def verify_ack(self, rxBuffer) -> bool:
-        if rxBuffer[0] == self.ACK:
+    def verify_ack(self, rxBuffer:bytes,len_packets) -> bool:
+        ver = rxBuffer.decode().split('\\') 
+        ver.pop(0)
+        if ver[0] == self.ACK and ver[3]==len_packets:
             return True
+        
         return False
 
     # ====================================================
@@ -122,150 +146,59 @@ class Client:
     def main(self):
         try:
             print('Iniciou o main')
-            data = '' # Qualquer coisa que deva ser mandado
-
+          
+            data = (123665476457676357632412314212413231416).to_bytes(16,'big')
+            print(len(data))
             print('Abriu a comunicação')
 
             self.t0 = calcula_tempo(time.ctime())
 
             print('Enviando Handshake:')
+            
             self.send_handshake()
             rxLen = self.waitBufferLen()
             rxBuffer, nRx = self.com1.getData(rxLen)
+
             
             if not self.verify_handshake(rxBuffer):
                 raise Exception('O Handshake não é um Handshake.')
+            else:
+                print('*'*98)
+                print('Handshake recebido')
 
             payloads, len_packets = self.make_payload_list(data)
-
-            while self.packetId < len_packets:
-                self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=len_packets)))
-                txSize = self.waitStatus()
-                self.packetId += 1
-                
-                # Acknowledge/Not Acknowledge
-                rxLen = self.waitBufferLen()
-                rxBuffer, nRx = self.com1.getData()
-
-                if not self.verify_ack(rxBuffer):
-                    self.packetId -= 1
-                else:
-
-
-
-            self.com1.sendData(np.asarray(self.make_packet()))
-
-        except Exception as erro:
-            print('Ops! :-\\')
-            print(erro)
-
-        finally:
-            self.com1.disable()
-
-    
-
-# serialName = "/dev/ttyACM1"  # Ubuntu (variacao de) Porta para utilização do arduino
-
-# def main():
-#     global lista
-#     try:
-#         print("Iniciou o main")
-
-#         #camada inferior à aplicação
-#         com1 = enlace(serialName) # Objeto que recebe o nome da porta serial
-    
-
-#         com1.enable() # Inicia a conexão
-
-#         #informa que a comunicação iniciou
-#         print("Abriu a comunicação")
-#         inicial = calcula_tempo(time.ctime())
-
-#         # Gera uma somatória de comandos para serem transmitidos
-#         n = quantidade()
-#         print("-"*94)
-#         print(f'\033[93mQuantidade de comandos {n}\033[0m\n')
-        
-#         comand = comando(n,lista)
        
 
+            while self.packetId < len_packets:
+                self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=hex(len_packets))))
+    
+                txSize = self.waitStatus()
+                self.packetId += 1
+         
+                # Acknowledge/Not Acknowledge
+                rxLen = self.waitBufferLen()
+                rxBuffer, nRx = self.com1.getData(rxLen)
+                print('crasg')
+                if not self.verify_ack(rxBuffer,len_packets):
+                    print('to aqui')
+                    self.packetId -= 1
+                    break
+                else:
+                    print('acabou')
+                    print(f'Enviado {nRx}')
+                    break
+            #self.com1.sendData(np.asarray(self.make_packet()))
 
-#         # time.sleep(.2)
-#         # com1.sendData(b'00')
-#         # time.sleep(1)
 
-
-#         print("Carregando mensagem para transmissão: ")
-#         print("-"*94)
-#         txBuffer = comand  #comando a ser transmitido
-
-#         #Verifica o tamanho do comando a ser transmitido
-
-
-
-#         #metodo da camada enlace, ele iniciará a transmissão 
-#         com1.sendData(np.asarray(txBuffer)) #Array de bytes
-
+        except Exception as erro:
+            print("ops! :-\\")
+            print(erro)
+   
+       
+        finally:
+            self.com1.disable()
         
-
-
-#         #TESTE UM
-#         # time.sleep(.2)
-#         # com1.sendData(b'00')
-#         # time.sleep(1)
-
-
-
-#         #Detecta o tamanho da mensagem a ser transmitida em bytes
-#         txSize = com1.tx.getStatus()
-#         while txSize == 0:
-#             txSize = com1.tx.getStatus()
-
-
-#         print('Enviou = {}\033[0m' .format(txSize))
-#         print("Esperando resposta...")
-#         print("-"*94)
-
-#         #acesso aos bytes recebidos
-#         txLen = com1.rx.getBufferLen()
-#         while txLen ==0:
-#             txLen = com1.rx.getBufferLen()
-#             final = calcula_tempo(time.ctime())
-#             delta_t = variacao_tempo(inicial,final)
-#             if delta_t >= 5:
-#                 print("Time out\n")
-
-#                 break
-
-#         time.sleep(0.05)
-        
-#         rxBuffer, nRx = com1.getData(txLen)
-
-#         time.sleep(0.05)
-                
-#         #print(rxBuffer)
-#         if nRx != 0:
-#             resposta =  f"\n\033[92mRecebeu {nRx}\033[0m\n"
-#         if nRx != txSize and delta_t <5:
-#             resposta = f'\033[91mErro na transição:\033[0m\n  \n\033[92menviado: {n}\n\033[91mrecebido: {nRx}\033[0m'
-#         if delta_t >= 5:
-#             resposta = f'\033[93mFalha na comunicação\033[0m'
-        
-#         print(resposta)
-
-
-#         #Encerra comunicação
-#         print("-"*(94))
-#         print("\033[95mComunicação encerrada\033[0m")
-#         print("-"*94)
-#         com1.disable()
-
-#     except Exception as erro:
-#         print("ops! :-\\")
-#         print(erro)
-#         com1.disable()
-        
-
     #so roda o main quando for executado do terminal ... se for chamado dentro de outro modulo nao roda
 if __name__ == "__main__":
-    main()
+    client = Client()
+    client.main()

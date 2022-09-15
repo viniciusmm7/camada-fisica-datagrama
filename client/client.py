@@ -5,6 +5,7 @@
 #Aplicação
 ####################################################
 from faulthandler import cancel_dump_traceback_later
+from http import client
 from enlace import *
 import time, platform, serial.tools.list_ports
 import numpy as np
@@ -44,8 +45,14 @@ class Client:
         while rxLen == 0:
             rxLen = self.com1.rx.getBufferLen()
             self.t1 = calcula_tempo(time.ctime())
-            if calcula_tempo(self.t0, self.t1) > 5:
-                raise Exception('Time out. Servidor não respondeu.')
+            if variacao_tempo(self.t0, self.t1) > 5:
+                res = input("Tentar reconexção?(s/n) ")
+                if res.lower() == "s":
+                    self.t0 = calcula_tempo(time.ctime())
+                    self.send_handshake()
+                else:
+            
+                    raise Exception('Time out. Servidor não respondeu.')
         return rxLen
 
     def waitStatus(self):
@@ -62,14 +69,11 @@ class Client:
         limit = 114
         payload_list = []
 
-        if data.isinstance(str):
-            data = data.encode()
 
-        if data.isinstance(bytes):
-            if limit > len(data):
-                limit = len(data)
-            payload_list.append(data[:limit])
-            data = data[limit:]
+        if limit > len(data):
+            limit = len(data)
+        payload_list.append(data[:limit])
+        data = data[limit:]
 
         return payload_list, len(payload_list)
 
@@ -101,8 +105,9 @@ class Client:
     
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
-    def verify_handshake(self, rxBuffer:bytes) -> bool:
-        if rxBuffer[0] == self.HANDSHAKE:
+    def verify_handshake(self, teste) -> bool:
+        if  teste == self.HANDSHAKE:
+            print('wow')
             return True
         return False
 
@@ -132,11 +137,13 @@ class Client:
             self.send_handshake()
             rxLen = self.waitBufferLen()
             rxBuffer, nRx = self.com1.getData(rxLen)
+            teste = rxBuffer.decode()[:4]
+            print(rxBuffer)
             
-            if not self.verify_handshake(rxBuffer):
+            if not self.verify_handshake(teste):
                 raise Exception('O Handshake não é um Handshake.')
 
-            payloads, len_packets = self.make_payload_list(data)
+            payloads, len_packets = self.make_payload_list(rxBuffer)
 
             while self.packetId < len_packets:
                 self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=len_packets)))
@@ -149,9 +156,6 @@ class Client:
 
                 if not self.verify_ack(rxBuffer):
                     self.packetId -= 1
-                else:
-
-
 
             self.com1.sendData(np.asarray(self.make_packet()))
 
@@ -268,4 +272,5 @@ class Client:
 
     #so roda o main quando for executado do terminal ... se for chamado dentro de outro modulo nao roda
 if __name__ == "__main__":
-    main()
+    client = Client()
+    client.main()

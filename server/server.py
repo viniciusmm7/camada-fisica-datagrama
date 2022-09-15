@@ -32,7 +32,7 @@ class Server:
         self.com1 = enlace(self.serialName)
         self.com1.enable()
         
-        self.packetId = 0
+        self.packetId = '\\x00'
         # self.lastpacketId = 0
 
     # ----- Método para a primeira porta com arduíno
@@ -67,14 +67,10 @@ class Server:
         limit = 114
         payload_list = []
 
-        if data.isinstance(str):
-            data = data.encode()
-
-        if data.isinstance(bytes):
-            if limit > len(data):
-                limit = len(data)
-            payload_list.append(data[:limit])
-            data = data[limit:]
+        if limit > len(data):
+            limit = len(data)
+        payload_list.append(data[:limit])
+        data = data[limit:]
 
         return payload_list, len(payload_list)
 
@@ -88,10 +84,8 @@ class Server:
         return rxBuffer, nRx
 
     # ----- Cria o pacote de fato
-    def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
-        
+    def make_packet(self, type='\\x03', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
         head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId, h5=h5)
-
         return (head.decode() + payload.decode() + self.EOF).encode()
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
@@ -112,6 +106,7 @@ class Server:
 
             rxLen = self.waitBufferLen()
             self.send_handshake()
+            print('Enviou o handshake')
             rxBuffer, nRx = self.com1.getData(rxLen)
             rxBuffer = bytearray(rxBuffer)
 
@@ -124,26 +119,10 @@ class Server:
                 rxBuffer = rxBuffer.encode()
 
             time.sleep(0.05)
-            array_list = np.asarray(rxBuffer.decode().split('/'))
-            sup = ''
-            qtd = 0
-
-            for item in array_list:
-                sup += item + '/'
-
-            for command in sup.split('/'):
-                if command == '\\x01':
-                    print('Acabou, recebi o eof')
-                    break
-                else:
-                    qtd += 1
-
-                print(f'\033[92m{qtd}ª comando: {command}\033[0m')
-            print(f'\n\033[93mQuantidade de comandos {qtd}\033[0m\n')
 
             print("recebeu {} bytes" .format(nRx))
 
-            self.com1.sendData(np.asarray(bytes(qtd))) #Array de bytes
+            self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes
             time.sleep(0.05)
 
             # A camada enlace possui uma camada inferior, TX possui um método para conhecermos o status da transmissão
@@ -156,101 +135,14 @@ class Server:
             print("-------------------------")
             print("Comunicação encerrada")
             print("-------------------------")
-            self.com1.disable()
 
         except Exception as erro:
             print("ops! :-\\")
             print(erro)
+
+        finally:
             self.com1.disable()
 
-
-# def main():
-#     try:
-#         print("Iniciou o main")
-#         #declaramos um objeto do tipo enlace com o nome "com". Essa é a camada inferior à aplicação. Observe que um parametro
-#         #para declarar esse objeto é o nome da porta.
-#         com1 = enlace(serialName)
-    
-#         # Ativa comunicacao. Inicia os threads e a comunicação seiral 
-#         com1.enable()
-#         #Se chegamos até aqui, a comunicação foi aberta com sucesso. Faça um print para informar.
-#         print("Abriu a comunicação")
-        
-#         #Agora vamos iniciar a recepção dos dados. Se algo chegou ao RX, deve estar automaticamente guardado
-#         #Observe o que faz a rotina dentro do thread RX
-#         #print um aviso de que a recepção vai começar.
-        
-#         #Será que todos os bytes enviados estão realmente guardadas? Será que conseguimos verificar?
-#         #Veja o que faz a funcao do enlaceRX  getBufferLen
-      
-#         #acesso aos bytes recebidos
-#         rxLen = com1.rx.getBufferLen()
-#         while rxLen == 0:
-#             rxLen = com1.rx.getBufferLen()
-        
-#         rxBuffer, nRx = com1.getData(rxLen)
-#         rxBuffer = bytearray(rxBuffer)
-
-#         while not rxBuffer.endswith(b'\\x01'):
-#             rxLen = com1.rx.getBufferLen()
-#             while rxLen == 0:
-#                 rxLen = com1.rx.getBufferLen()
-
-#             rxBuffer = rxBuffer.decode()
-#             a = com1.getData(rxLen)[0].decode()
-#             print(f'{a}')
-#             rxBuffer += a
-#             rxBuffer = rxBuffer.encode()
-
-#         time.sleep(0.05)
-#         array_list = np.asarray(rxBuffer.decode().split('/'))
-#         sup = ''
-#         qtd = 0
-
-#         for item in array_list:
-#             sup += item + '/'
-        
-#         for command in sup.split('/'):
-#             if command == '\\x01':
-#                 print('ACABOU, RECEBI O END BYTE')
-#                 break
-#             else:
-#                 qtd += 1
-
-#             print(f'\033[92m{qtd}ª comando: {command}\033[0m')
-
-#         print(f'\n\033[93mQuantidade de comandos {qtd}\033[0m\n')
-
-#         # ===== ERRO HARD CODED =====
-#         # rxBuffer = bytes(str(rxBuffer.decode() + '/\x66').encode())
-
-#         print("recebeu {} bytes" .format(nRx))
-
-#         com1.sendData(np.asarray(bytes(qtd))) #Array de bytes
-#         time.sleep(0.05)
-
-#         # A camada enlace possui uma camada inferior, TX possui um método para conhecermos o status da transmissão
-#         # O método não deve estar funcionando quando usado como abaixo. deve estar retornando zero. Tente entender como esse método funciona e faça-o funcionar.
-#         txSize = com1.tx.getStatus()
-#         while txSize == 0:
-#             txSize = com1.tx.getStatus()
-
-#         print('enviou = {}'.format(txSize))
-    
-#         # Encerra comunicação
-#         print("-------------------------")
-#         print("Comunicação encerrada")
-#         print("-------------------------")
-#         com1.disable()
-        
-#     except Exception as erro:
-#         print("ops! :-\\")
-#         print(erro)
-#         com1.disable()
-        
-
-    #so roda o main quando for executado do terminal ... se for chamado dentro de outro modulo nao roda
 if __name__ == "__main__":
     server = Server()
-    print('Criou o objeto Server')
     server.main()

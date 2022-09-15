@@ -32,8 +32,8 @@ class Server:
         self.com1 = enlace(self.serialName)
         self.com1.enable()
         
-        self.packetId = '\\x00'
-        # self.lastpacketId = 0
+        self.packetId = 0
+        self.lastpacketId = 0
 
     # ----- Método para a primeira porta com arduíno
     #       se tiver mais de uma (sozinho, por exemplo)
@@ -84,17 +84,39 @@ class Server:
         return rxBuffer, nRx
 
     # ----- Cria o pacote de fato
-    def make_packet(self, type='\\x03', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
-        head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId, h5=h5)
+    def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
+        if self.packetId < 16 and self.lastpacketId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
+        elif self.packetId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
+        elif self.lastpacketId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId)[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
+        else:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
+
         return (head.decode() + payload.decode() + self.EOF).encode()
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
         self.com1.sendData(np.asarray(self.make_packet(type=self.HANDSHAKE)))
 
+    # ----- Verifica se o pacote recebido é um handshake
+    # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
+    def verify_handshake(self, rxBuffer:bytes) -> bool:
+        if  '\\' + rxBuffer.decode().split('\\')[1] == self.HANDSHAKE:
+            return True
+        return False
+
     # ----- Envia o acknowledge (reduzir a complexidade do main)
     def send_ack(self):
         self.com1.sendData(np.asarray(self.make_packet(type=self.ACK)))
+
+    # ----- Verifica se o pacote recebido é um acknowledge
+    # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
+    def verify_ack(self, rxBuffer:bytes) -> bool:
+        if '\\' + rxBuffer.decode().split('\\')[1] == self.ACK:
+            return True
+        return False
 
     # ====================================================
 
@@ -110,7 +132,7 @@ class Server:
             rxBuffer, nRx = self.com1.getData(rxLen)
             rxBuffer = bytearray(rxBuffer)
 
-            while not rxBuffer.endswith(b'\\x01'):
+            while not rxBuffer.endswith(self.EOF.encode()):
                 rxLen = self.waitBufferLen()
 
                 rxBuffer = rxBuffer.decode()
@@ -121,7 +143,7 @@ class Server:
             time.sleep(0.05)
 
             print("recebeu {} bytes" .format(nRx))
-
+            
             self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes
             time.sleep(0.05)
 

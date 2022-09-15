@@ -32,7 +32,7 @@ class Server:
         self.com1 = enlace(self.serialName)
         self.com1.enable()
         
-        self.packetId = '\\x00'
+        self.packetId = 0
         # self.lastpacketId = 0
 
     # ----- Método para a primeira porta com arduíno
@@ -84,17 +84,40 @@ class Server:
         return rxBuffer, nRx
 
     # ----- Cria o pacote de fato
-    def make_packet(self, type='\\x03', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
-        head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId, h5=h5)
+    def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
+        if self.packetId < 16 and self.lastpacketId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+format(self.packetId, 'x'), h5=h5, last_packet='\\x0'+format(self.lastpacketId, 'x'))
+        elif self.packetId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+format(self.packetId, 'x'), h5=h5, last_packet='\\x'+format(self.lastpacketId, 'x'))
+        elif self.lastpacketId < 16:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+format(self.packetId, 'x'), h5=h5, last_packet='\\x0'+format(self.lastpacketId, 'x'))
+        else:
+            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+format(self.packetId, 'x'), h5=h5, last_packet='\\x'+format(self.lastpacketId, 'x'))
+
         return (head.decode() + payload.decode() + self.EOF).encode()
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
         self.com1.sendData(np.asarray(self.make_packet(type=self.HANDSHAKE)))
 
+    # ----- Verifica se o pacote recebido é um handshake
+    # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
+    def verify_handshake(self, h0) -> bool:
+        if  h0 == self.HANDSHAKE:
+            print('wow')
+            return True
+        return False
+
     # ----- Envia o acknowledge (reduzir a complexidade do main)
     def send_ack(self):
         self.com1.sendData(np.asarray(self.make_packet(type=self.ACK)))
+
+    # ----- Verifica se o pacote recebido é um acknowledge
+    # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
+    def verify_ack(self, h0) -> bool:
+        if h0 == self.ACK:
+            return True
+        return False
 
     # ====================================================
 

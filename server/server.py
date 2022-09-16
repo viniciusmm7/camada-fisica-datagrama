@@ -10,6 +10,7 @@
 #para acompanhar a execução e identificar erros, construa prints ao longo do código! 
 
 
+from html.entities import html5
 from enlace import *
 import time, platform, serial.tools.list_ports
 import numpy as np
@@ -23,9 +24,10 @@ import numpy as np
 
 class Server:
     def __init__(self):
-        self.HANDSHAKE = '\\x01'
-        self.ACK = '\\x02'
-        self.EOF = '\\xAA\\xBB\\xCC\\xDD'
+        self.HANDSHAKE = b'\x01'
+        self.ACK = b'\x02'
+        self.ERROR = b'\x03'
+        self.EOF = b'\xAA\xBB\xCC\xDD'
 
         self.os = platform.system().lower()
         self.serialName = self._findArduino()
@@ -34,6 +36,8 @@ class Server:
         
         self.packetId = 0
         self.lastpacketId = 0
+        # self.lenLastPacket = 0
+
 
     # ----- Método para a primeira porta com arduíno
     #       se tiver mais de uma (sozinho, por exemplo)
@@ -75,26 +79,31 @@ class Server:
         return payload_list, len(payload_list)
 
     # ----- Cria o head do pacote
-    def make_head(self, type='\\x00', h1='\\x00', h2='\\x00', len_packets='\\x00', packet_id='\\x00', h5='\\x00', h6='\\x00', last_packet='\\x00', h8='\\x00', h9='\\x00'):
-        return (type + h1 + h2 + len_packets + packet_id + h5 + h6 + last_packet + h8 + h9).encode()
+    def make_head(self, type=b'\x00', h1=b'\x00', h2=b'\x00', len_packets=b'\x00', packet_id=b'\x00', h5=b'\x00', h6=b'\x00', last_packet=b'\x00', h8=b'\x00', h9=b'\x00'):
+        return type + h1 + h2 + len_packets + packet_id + h5 + h6 + last_packet + h8 + h9
 
     # ----- Lê o payload (só para reduzir a complexidade do entendimento do main)
-    def read_payload(self, n): # n = head[5]
-        rxBuffer, nRx = self.com1.getData(n)
-        return rxBuffer, nRx
+    def read_payload(self, rxBuffer): # n = head[5]
+        h5 = rxBuffer[5]+10
+        print('H5 DO READPAYLOAD',h5-10)
+        print(rxBuffer[10:h5])
+        return rxBuffer[10:h5]
+
+    def get_head_info(self, rxBuffer:bytes):
+        head = rxBuffer[:10] # 10 primeiros itens são o head
+
+        len_packets = head[3] # quantidade de pacotes (int)
+        packet_id   = head[4] # id do pactote (int)
+        h5          = head[5] # se o tipo for handshake, id do arquivo, senão, tamanho do payload (int)
+        h6          = head[6] # pacote para recomeçar quando há erro (int)
+        last_packet = head[7] # id do último pacote recebido com sucesso (int)
+
+        return len_packets, packet_id, h5, h6, last_packet
 
     # ----- Cria o pacote de fato
-    def make_packet(self, type='\\x00', payload:bytes=b'', len_packets='\\x00', h5='\\x00') -> bytes:
-        if self.packetId < 16 and self.lastpacketId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
-        elif self.packetId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x0'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
-        elif self.lastpacketId < 16:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId)[2:], h5=h5, last_packet='\\x0'+hex(self.lastpacketId)[2:])
-        else:
-            head = self.make_head(type=type, len_packets=len_packets, packet_id='\\x'+hex(self.packetId)[2:], h5=h5, last_packet='\\x'+hex(self.lastpacketId)[2:])
-
-        return (head.decode() + payload.decode() + self.EOF).encode()
+    def make_packet(self, type=b'\x00', payload:bytes=b'', len_packets=b'\x00', h5=b'\x00', h6=b'\x00') -> bytes:
+        head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId.to_bytes(1, 'big'), h5=h5, last_packet=self.lastpacketId.to_bytes(1, 'big'))
+        return head + payload + self.EOF
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
@@ -103,20 +112,24 @@ class Server:
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
     def verify_handshake(self, rxBuffer:bytes) -> bool:
-        if  '\\' + rxBuffer.decode().split('\\')[1] == self.HANDSHAKE:
+        if rxBuffer[0].to_bytes(1, 'big') == self.HANDSHAKE:
             return True
         return False
 
     # ----- Envia o acknowledge (reduzir a complexidade do main)
-    def send_ack(self):
-        self.com1.sendData(np.asarray(self.make_packet(type=self.ACK)))
+    def send_ack(self, len_packets:int, h5:int):
+        self.com1.sendData(np.asarray(self.make_packet(type=self.ACK, len_packets=len_packets.to_bytes(1, 'big'), h5=h5.to_bytes(1, 'big'))))
 
     # ----- Verifica se o pacote recebido é um acknowledge
     # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
     def verify_ack(self, rxBuffer:bytes) -> bool:
-        if '\\' + rxBuffer.decode().split('\\')[1] == self.ACK:
+        if rxBuffer[0].to_bytes(1, 'big') == self.ACK:
             return True
         return False
+
+    # ----- Envia o erro
+    def send_error(self):
+        self.com1.sendData(np.asarray(self.make_packet(type=self.ERROR)))
 
     # ====================================================
 
@@ -126,23 +139,51 @@ class Server:
             
             print('Abriu a comunicação')
 
+            # ===== HANDSHAKE
             rxLen = self.waitBufferLen()
+            
+            rxBuffer, nRx = self.com1.getData(rxLen)
+            while not rxBuffer.endswith(self.EOF):
+                rxLen = self.waitBufferLen()
+                a = self.com1.getData(rxLen)[0]
+                rxBuffer += a
+                time.sleep(0.05)
+            
+            if not self.verify_handshake(rxBuffer):
+                raise Exception('O Handshake não é um Handshake')
+            print('Handshake recebido')
+
+            # Quantidade de pacotes de payload
+            len_packets = self.get_head_info(rxBuffer)[0]
+
             self.send_handshake()
             print('Enviou o handshake')
-            rxBuffer, nRx = self.com1.getData(rxLen)
-            rxBuffer = bytearray(rxBuffer)
+            # ===== END HANDSHAKE
 
-            while not rxBuffer.endswith(self.EOF.encode()):
+            # ===== DADOS
+            while self.packetId < len_packets:
                 rxLen = self.waitBufferLen()
+                rxBuffer, nRx = self.com1.getData(rxLen)
+                # Enquanto o pacote não estiver completo, concatena
+                while not rxBuffer.endswith(self.EOF):
+                    rxLen = self.waitBufferLen()
+                    a = self.com1.getData(rxLen)[0]
+                    rxBuffer += a
+                    time.sleep(0.05)
 
-                rxBuffer = rxBuffer.decode()
-                a = self.com1.getData(rxLen)[0].decode()
-                rxBuffer += a
-                rxBuffer = rxBuffer.encode()
+                _, packet_id, h5, h6, last_packet = self.get_head_info(rxBuffer)
+                
+                # DESCOMENTAR A LINHA ABAIXO PARA FORÇAR O ERRO DE ID DE PACOTE
+                # packet_id = -1
+                if packet_id != self.packetId:
+                    # ENVIAR ERRO
+                    print('ERRO')
+                    self.send_error()
 
-            time.sleep(0.05)
-
-            print("recebeu {} bytes" .format(nRx))
+                else:
+                    self.send_ack(len_packets=len_packets, h5=h5)
+                    print(self.read_payload(rxBuffer))
+                    self.packetId += 1
             
             self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes
             time.sleep(0.05)
@@ -158,9 +199,9 @@ class Server:
             print("Comunicação encerrada")
             print("-------------------------")
 
-        except Exception as erro:
-            print("ops! :-\\")
-            print(erro)
+        # except Exception as erro:
+        #     print("ops! :-\\")
+        #     print(erro)
 
         finally:
             self.com1.disable()

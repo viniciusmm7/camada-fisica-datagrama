@@ -83,10 +83,10 @@ class Server:
         return type + h1 + h2 + len_packets + packet_id + h5 + h6 + last_packet + h8 + h9
 
     # ----- Lê o payload (só para reduzir a complexidade do entendimento do main)
-    def read_payload(self, rxBuffer): # n = head[5]
+    def read_payload(self, rxBuffer):
         h5 = rxBuffer[5]+10
         print('H5 DO READPAYLOAD',h5-10)
-        print(rxBuffer[10:h5])
+        print(rxBuffer[:10])
         return rxBuffer[10:h5]
 
     def get_head_info(self, rxBuffer:bytes):
@@ -182,7 +182,7 @@ class Server:
 
                 else:
                     self.send_ack(len_packets=len_packets, h5=h5)
-                    print(self.read_payload(rxBuffer))
+                    self.read_payload(rxBuffer)
                     self.packetId += 1
             
             self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes

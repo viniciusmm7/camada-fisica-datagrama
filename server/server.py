@@ -85,8 +85,11 @@ class Server:
     # ----- Lê o payload (só para reduzir a complexidade do entendimento do main)
     def read_payload(self, rxBuffer):
         h5 = rxBuffer[5]+10
-        print('H5 DO READPAYLOAD',h5-10)
-        print(rxBuffer[:10])
+        # print('HEAD DO READPAYLOAD::', rxBuffer[:10])
+
+
+
+
         return rxBuffer[10:h5]
 
     def get_head_info(self, rxBuffer:bytes):
@@ -107,7 +110,8 @@ class Server:
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self):
-        self.com1.sendData(np.asarray(self.make_packet(type=self.HANDSHAKE)))
+        hs = self.make_packet(type=self.HANDSHAKE)
+        self.com1.sendData(np.asarray(hs))
 
     # ----- Verifica se o pacote recebido é um handshake
     # verify_handshake = lambda self, rxBuffer: True if rxBuffer[0] == self.HANDSHAKE else False
@@ -118,7 +122,9 @@ class Server:
 
     # ----- Envia o acknowledge (reduzir a complexidade do main)
     def send_ack(self, len_packets:int, h5:int):
-        self.com1.sendData(np.asarray(self.make_packet(type=self.ACK, len_packets=len_packets.to_bytes(1, 'big'), h5=h5.to_bytes(1, 'big'))))
+        ack = self.make_packet(type=self.ACK, len_packets=len_packets.to_bytes(1, 'big'), h5=h5.to_bytes(1, 'big'))
+        print('ACK::', ack)
+        self.com1.sendData(np.asarray(ack))
 
     # ----- Verifica se o pacote recebido é um acknowledge
     # verify_ack = lambda self, rxBuffer: True if rxBuffer[0] == self.ACK else False
@@ -173,26 +179,26 @@ class Server:
 
                 _, packet_id, h5, h6, last_packet = self.get_head_info(rxBuffer)
                 
-                # DESCOMENTAR A LINHA ABAIXO PARA FORÇAR O ERRO DE ID DE PACOTE
-                # packet_id = -1
+                # Verificação de id de pacote, se for True, é um erro
                 if packet_id != self.packetId:
                     # ENVIAR ERRO
-                    print('ERRO')
+                    print('[ERRO] PACOTE INCORRETO')
                     self.send_error()
 
                 else:
+                    # ENVIAR ACK
                     self.send_ack(len_packets=len_packets, h5=h5)
                     self.read_payload(rxBuffer)
                     self.packetId += 1
             
-            self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes
-            time.sleep(0.05)
+            # self.com1.sendData(np.asarray(self.make_packet())) #Array de bytes
+            # time.sleep(0.05)
 
-            # A camada enlace possui uma camada inferior, TX possui um método para conhecermos o status da transmissão
-            # O método não deve estar funcionando quando usado como abaixo. deve estar retornando zero. Tente entender como esse método funciona e faça-o funcionar.
-            txSize = self.waitStatus()
+            # # A camada enlace possui uma camada inferior, TX possui um método para conhecermos o status da transmissão
+            # # O método não deve estar funcionando quando usado como abaixo. deve estar retornando zero. Tente entender como esse método funciona e faça-o funcionar.
+            # txSize = self.waitStatus()
 
-            print('enviou = {}'.format(txSize))
+            # print('enviou = {}'.format(txSize))
         
             # Encerra comunicação
             print("-------------------------")

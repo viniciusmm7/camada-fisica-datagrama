@@ -4,22 +4,20 @@
 #11/08/2022
 #Aplicação
 ####################################################
-from faulthandler import cancel_dump_traceback_later
-from http import client
 from enlace import *
 import time, platform, serial.tools.list_ports
 import numpy as np
 from comandos import *
-import random
+from img import *
 
 class Client:
     def __init__(self):
         self.HANDSHAKE = b'\x01'
         self.ACK = b'\x02'
-        self.EOF = b'\xAA\xBB\xCC\xDD'
+        self.EOP = b'\xAA\xBB\xCC\xDD'
         self.ERROR = b'\x03'
-        self.REENVIO = b'\x01' #WTF
-
+        self.FINAL = b'\x04'
+        self.IMG = "img/olhos_fitao.png"
 
         self.os = platform.system().lower()
         self.serialName = self._findArduino()
@@ -30,6 +28,8 @@ class Client:
         
         self.t0 = 0
         self.t1 = 0
+        self.t2 = 0
+        self.t3 = 0
         self.packetId = 0
         self.lastpacketId = 0
         self.lenPackets = 0 
@@ -69,7 +69,6 @@ class Client:
         return rxLen
 
     def waitStatus(self):
- 
         txSize = self.com1.tx.getStatus()
         while txSize == 0:
             txSize = self.com1.tx.getStatus()
@@ -105,7 +104,7 @@ class Client:
     def make_packet(self, type=b'\x00', payload:bytes=b'', len_packets=b'\x00', h5:bytes=b'\x00') -> bytes:
 
         head = self.make_head(type=type, len_packets=len_packets, packet_id=self.packetId.to_bytes(1,'big'), h5=h5, last_packet=self.lastpacketId.to_bytes(1,'big'))
-        return (head + payload + self.EOF)
+        return (head + payload + self.EOP)
 
     # ----- Envia o handshake (só para reduzir a complexidade do entendimento do main)
     def send_handshake(self,len_packets):     
@@ -137,30 +136,32 @@ class Client:
         return False
     # ====================================================
 
-    def get_error_info(self, rxBuffer:bytes):
+    def get_type(self, rxBuffer:bytes):
 
         head = rxBuffer[:10] # 10 primeiros itens são o head
      
         h0 = head[0].to_bytes(1,'big')
   
-        return h0,None,None
+        return h0
 
 
     def main(self):
         try:
             print('Iniciou o main')
-          
+  
 
-            #print(len(data))
+       
             print('Abriu a comunicação')
 
             self.t0 = calcula_tempo(time.ctime())
+            with open(self.IMG, 'rb') as arquivo:
+                m= arquivo.read()
             
             
             print('Enviando Handshake:')
-            n = quantidade()
-            data = comando(n,lista)
-            payloads, self.lenPackets = self.make_payload_list(data)
+   
+            payloads, self.lenPackets = self.make_payload_list(m)
+            
             self.com1.rx.clearBuffer()
             
             self.send_handshake(self.lenPackets.to_bytes(1,'big'))
@@ -178,7 +179,7 @@ class Client:
 
             
 
-            print(f'quantidade de comandos {n}') 
+            #print(f'quantidade de comandos {n}') 
           
             print(f'quantidade de payloads {len(payloads)}')
          
@@ -187,69 +188,74 @@ class Client:
        
             #self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=hex(len_packets))))
             while self.packetId < self.lenPackets:
-                susi = hex(len(payloads[self.packetId])).encode()[2:]
-                #vel = bytearray.fromhex(susi)
-        
-                print(susi)
-                #print(vel)
-
+                susi = len(payloads[self.packetId]).to_bytes(1,'big')
+                
            
                 #envio de pacotes
-                self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=self.lenPackets.to_bytes(1,'big'),h5=vel)))
+                self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=self.lenPackets.to_bytes(1,'big'),h5=susi)))
+
+
+                #=========== Erro induzido ===========
+                #self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId+1], len_packets=self.lenPackets.to_bytes(1,'big'),h5=susi)))
                 time.sleep(0.1)
                 #recebe a resposta do servidor
                 rxLen = self.waitBufferLen()
                 rxBuffer, nRx = self.com1.getData(rxLen)
               
-
-                while not rxBuffer.endswith(self.EOF):
-                   # print('infinit')
+                self.t2 = calcula_tempo(time.ctime())
+                while not rxBuffer.endswith(self.EOP):
+                    self.t3 = calcula_tempo(time.ctime())
+                    if variacao_tempo(self.t2, self.t3) > 1:
+                        break
                     rxLen = self.waitBufferLen()
                     a = self.com1.getData(rxLen)[0]
                     rxBuffer += a
                     time.sleep(0.05)
+                    
+                    
 
                 
 
-                #verifica rx
-                mens,packet_id, last_packet= self.get_error_info(rxBuffer)
-                
+                #--------------- Verifica resposta do server ACK ou Error ---------------
+                h0 = self.get_type(rxBuffer)
 
-                if mens == self.ERROR:
-                    print('UEPA')
-                    self.com1.sendData(np.asarray(self.make_packet(payload=payloads[self.packetId], len_packets=self.lenPackets.to_bytes(1,'big'))))
+                if h0 == self.FINAL:
+                    print('uhul')
+                    break                
+
+                if h0 == self.ERROR:
+                    print(f'\033[93mERRO: reenviando pacote {rxBuffer[6]}\033[0m')
+                    self.com1.sendData(np.asarray(self.make_packet(payload=payloads[rxBuffer[6]], len_packets=self.lenPackets.to_bytes(1,'big'))))
                     time.sleep(0.1)
+                    self.packetId = rxBuffer[6] 
                     rxLen = self.waitBufferLen()
                     rxBuffer, nRx = self.com1.getData(rxLen)
-                
-                elif mens == self.ACK:
-         
-                    
+                    time.sleep(0.1)
+
+                #---------------Verifica o Ack enviado pelo servidor para continuar a transmissão---------------------
+                if h0 == self.ACK:
+                    print('\n\033[92mACK CONFIRMADO\033[0m')
                     self.packetId += 1
 
-                    #else:
                     txSize = self.waitStatus()
                     
                     self.lastpacketId = self.packetId - 1
                 
-                    # Acknowledge/Not Acknowledge
+                    # Acknowledge
                     rxLen = self.waitBufferLen()
                     rxBuffer, nRx = self.com1.getData(rxLen)
+                    time.sleep(0.1)
             
                     
-                    print(f'Enviando pacote {self.packetId}')
-                    print(f'Payload tamanho {txSize-14}')
-                
-                else:
-        
-                    break
-            #self.com1.sendData(np.asarray(self.make_packet()))
+                    print(f'\033[1mEnviando pacote {self.packetId}\033[0m')
+                    print(f'\033[1mPayload tamanho {txSize-14}\033[0m\n')
 
 
-        except Exception as erro:
-            print("ops! :-\\")
-            print(erro)
+        # except Exception as erro:
+        #     print("ops! :-\\")
+        #     print(erro)
         finally:
+            print('Comunicação encerrada')
             self.com1.disable()
 
        
